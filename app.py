@@ -12,7 +12,7 @@ CORS(app)  # This will allow all domains to access your Flask app
 app.config['JWT_SECRET_KEY'] = "starz"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -21,7 +21,7 @@ jwt = JWTManager(app)
 
 class options(db.Model):
     __tablename__ = 'options'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    sno = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
     labour = db.Column(db.String(100),  nullable=False)
     machinery = db.Column(db.String(255), nullable=False)
@@ -49,8 +49,8 @@ class category(db.Model):
 class projects(db.Model):
     __tablename__ = 'projects'
     projectname = db.Column(db.String(100),unique=True, primary_key=True)
-    quotedamount = db.Column(db.Integer, nullable=False)
-    totexpense = db.Column(db.Integer, nullable=False)
+    quotedamount = db.Column(db.BigInteger, nullable=False, default=0)
+    totexpense = db.Column(db.BigInteger, nullable=False)
 
 
     def __init__(self,projectname, quotedamount, totexpense):
@@ -60,7 +60,7 @@ class projects(db.Model):
 
 class payments1(db.Model):
     __tablename__ = 'payments1'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    pid = db.Column(db.Integer, primary_key=True, autoincrement=True)
     projectname = db.Column(db.String(100),db.ForeignKey('projects.projectname'))
     type = db.Column(db.String(100),nullable=False)
     estamount = db.Column(db.Integer, nullable=False)
@@ -77,7 +77,7 @@ class payments1(db.Model):
 class payments2(db.Model):
     __tablename__ = 'payments2'
     uid = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    projectname = db.Column(db.String(100),db.ForeignKey('projects.projectname'),unique=True,nullable=False)
+    projectname = db.Column(db.String(100),db.ForeignKey('projects.projectname'),nullable=False)
     id = db.Column(db.String(15), db.ForeignKey('category.id'),nullable=False)
     amount = db.Column(db.Integer, nullable=False)
     date = db.Column(db.Date, nullable=False)  
