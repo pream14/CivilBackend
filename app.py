@@ -12,7 +12,7 @@ CORS(app)  # This will allow all domains to access your Flask app
 app.config['JWT_SECRET_KEY'] = "starz"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -108,7 +108,36 @@ def add_category():
 
 
 
+@app.route('/labour', methods=['GET'])
+def get_labour():
+    # Query the labour column
+    labour_data = db.session.query(options.labour).all()
+    # Convert tuples to a list of strings
+    labour_list = [labour[0] for labour in labour_data]
+    # Return as JSON
+    print(labour_list)
+    return jsonify({'labour': labour_list})
 
+@app.route('/add-labour', methods=['POST'])
+def add_labour():
+    data = request.get_json()
+    
+    # Validate the incoming data
+    if not data or 'labour' not in data:
+        return jsonify({"error": "Missing 'labour' field in request data"}), 400
+    
+    labour_type = data['labour']
+    
+    try:
+        new_labour = options(labour=labour_type, machinery='', material='')  # You can set machinery and material to defaults or accept them as well
+        db.session.add(new_labour)
+        db.session.commit()
+        
+        # Return a success response with the new labour type
+        return jsonify({"message": "Labour added successfully!", "labour": labour_type}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 
