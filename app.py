@@ -181,5 +181,43 @@ def add_machinery():
         return jsonify({"error": "Failed to add machinery. " + str(e)}), 500  # Include 'error' keyword
     
 
+@app.route('/material', methods=['GET'])
+def get_material():
+    # Query the labour column
+    material_data = db.session.query(options.material).all()
+    # Convert tuples to a list of strings
+    material_list = [material[0] for material in material_data]
+    # Return as JSON
+    print(material_list)
+    return jsonify({'material': material_list})
+
+
+@app.route('/add-material', methods=['POST'])
+def add_material():
+    data = request.get_json()
+    
+    # Validate the incoming data
+    if not data or 'material' not in data:
+        return jsonify({"error": "Missing 'material' field in request data"}), 400  # Include 'error' keyword
+    
+    material_type = data['material']
+    
+    try:
+        # Ensure labour_type is unique (example query, adjust for your DB structure)
+        existing_material = db.session.query(options).filter_by(material=material_type).first()
+        if existing_material:
+            return jsonify({"error": "Material type already exists."}), 400  # Prevent duplicate additions
+
+        # Add new labour type
+        new_material = options(labour='', machinery='', material=material_type)  # Default values for machinery and material
+        db.session.add(new_material)
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "Material added successfully!", "material": material_type}), 201  # Include 'success' keyword
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to add material. " + str(e)}), 500  # Include 'error' keyword
+    
+
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
