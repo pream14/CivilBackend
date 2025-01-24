@@ -9,10 +9,10 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "starz"
+app.config['JWT_SECRET_KEY'] = "Jackdog02#"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -87,26 +87,24 @@ class payments2(db.Model):
         self.date = date
         self.amount = amount
         self.id = id
-
 @app.route('/add-category', methods=['POST'])
 def add_category():
     data = request.get_json()  
     if not data or 'name' not in data or 'type' not in data or 'id' not in data:
-        return jsonify({"error": "Missing 'name' or 'type' in request data"}), 400
-    id=data['id']
+        return jsonify({"error": "Missing 'name', 'type', or 'id' in request data"}), 400  # Include 'error' keyword in the message
+    
+    id = data['id']
     name = data['name']
     type_ = data['type']
 
     try:
-        new_category = category(name=name, type=type_,id=id)
+        new_category = category(name=name, type=type_, id=id)
         db.session.add(new_category)
         db.session.commit()
-        return jsonify({"message": "Category added successfully!", "id": new_category.id}), 201
+        return jsonify({"success": True, "message": "Category added successfully!", "id": new_category.id}), 201  # Include 'success' keyword
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-
+        return jsonify({"error": "Failed to add category. " + str(e)}), 500  # Include 'error' keyword
 
 @app.route('/labour', methods=['GET'])
 def get_labour():
@@ -124,22 +122,25 @@ def add_labour():
     
     # Validate the incoming data
     if not data or 'labour' not in data:
-        return jsonify({"error": "Missing 'labour' field in request data"}), 400
+        return jsonify({"error": "Missing 'labour' field in request data"}), 400  # Include 'error' keyword
     
     labour_type = data['labour']
     
     try:
-        new_labour = options(labour=labour_type, machinery='', material='')  # You can set machinery and material to defaults or accept them as well
+        # Ensure labour_type is unique (example query, adjust for your DB structure)
+        existing_labour = db.session.query(options).filter_by(labour=labour_type).first()
+        if existing_labour:
+            return jsonify({"error": "Labour type already exists."}), 400  # Prevent duplicate additions
+
+        # Add new labour type
+        new_labour = options(labour=labour_type, machinery='', material='')  # Default values for machinery and material
         db.session.add(new_labour)
         db.session.commit()
         
-        # Return a success response with the new labour type
-        return jsonify({"message": "Labour added successfully!", "labour": labour_type}), 201
+        return jsonify({"success": True, "message": "Labour added successfully!", "labour": labour_type}), 201  # Include 'success' keyword
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-
+        return jsonify({"error": "Failed to add labour. " + str(e)}), 500  # Include 'error' keyword
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
