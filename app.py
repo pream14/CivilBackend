@@ -87,6 +87,7 @@ class payments2(db.Model):
         self.date = date
         self.amount = amount
         self.id = id
+
 @app.route('/add-category', methods=['POST'])
 def add_category():
     data = request.get_json()  
@@ -141,6 +142,44 @@ def add_labour():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Failed to add labour. " + str(e)}), 500  # Include 'error' keyword
+
+@app.route('/machinery', methods=['GET'])
+def get_machinery():
+    # Query the labour column
+    machinery_data = db.session.query(options.machinery).all()
+    # Convert tuples to a list of strings
+    machinery_list = [machinery[0] for machinery in machinery_data]
+    # Return as JSON
+    print(machinery_list)
+    return jsonify({'machinery': machinery_list})
+
+
+@app.route('/add-machinery', methods=['POST'])
+def add_machinery():
+    data = request.get_json()
+    
+    # Validate the incoming data
+    if not data or 'machinery' not in data:
+        return jsonify({"error": "Missing 'machinery' field in request data"}), 400  # Include 'error' keyword
+    
+    machinery_type = data['machinery']
+    
+    try:
+        # Ensure labour_type is unique (example query, adjust for your DB structure)
+        existing_machinery = db.session.query(options).filter_by(machinery=machinery_type).first()
+        if existing_machinery:
+            return jsonify({"error": "Machinery type already exists."}), 400  # Prevent duplicate additions
+
+        # Add new labour type
+        new_machinery = options(labour='', machinery=machinery_type, material='')  # Default values for machinery and material
+        db.session.add(new_machinery)
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "Machinery added successfully!", "machinery": machinery_type}), 201  # Include 'success' keyword
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to add machinery. " + str(e)}), 500  # Include 'error' keyword
+    
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
