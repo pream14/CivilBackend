@@ -9,10 +9,10 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "Jackdog02#"
+app.config['JWT_SECRET_KEY'] = "starz#"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -217,25 +217,42 @@ def add_material():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Failed to add material. " + str(e)}), 500  # Include 'error' keyword
-    
-@app.route('/add_project', methods=['POST'])
-def add_project():
-    data = request.get_json()
-    projectname = data.get('projectname')
-    quotedamount = data.get('quotedamount')
-    totexpense = data.get('totexpense')
-    
-    if not projectname or quotedamount is None or totexpense is None:
-        return jsonify({'error': 'Missing required fields'}), 400
-    
-    try:
-        new_project = projects(projectname, quotedamount, totexpense)
+
+
+
+
+@app.route('/submit_project', methods=['POST'])
+def submit_project():
+    data = request.json
+    project_name = data.get('projectname')
+    estimated_amount = data.get('estimated_amount', 0)  # Fixed name
+    payments = data.get('rows', [])  # Fixed from 'payments' to 'rows'
+
+    # Check if project already exists
+    existing_project = projects.query.filter_by(projectname=project_name).first()
+
+    if not existing_project:
+        # Insert project into `projects` table
+        new_project = projects(projectname=project_name, quotedamount=estimated_amount, totexpense=0)
         db.session.add(new_project)
-        db.session.commit()
-        return jsonify({'message': 'Project added successfully'}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        db.session.commit()  # Commit immediately to avoid foreign key issues
+
+    # Insert into `payments1`
+    for payment in payments:
+        new_payment = payments1(
+            projectname=project_name,
+            type=payment.get('type'),
+            estamount=payment.get('estamount'),
+            expense=payment.get('expense', 0)
+        )
+        db.session.add(new_payment)
+
+    db.session.commit()  # Commit all payments
+
+    return jsonify({"message": "Project and payments added successfully"}), 200
+
+
+
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
