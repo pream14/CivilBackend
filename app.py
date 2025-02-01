@@ -9,10 +9,10 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "Jackdog02#"
+app.config['JWT_SECRET_KEY'] = "starz"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -141,6 +141,26 @@ def add_labour():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Failed to add labour. " + str(e)}), 500  # Include 'error' keyword
+
+# add project details to project table
+@app.route('/add_project', methods=['POST'])
+def add_project():
+    data = request.get_json()
+    projectname = data.get('projectname')
+    quotedamount = data.get('quotedamount')
+    totexpense = data.get('totexpense')
+    
+    if not projectname or quotedamount is None or totexpense is None:
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    try:
+        new_project = Projects(projectname, quotedamount, totexpense)
+        db.session.add(new_project)
+        db.session.commit()
+        return jsonify({'message': 'Project added successfully'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
