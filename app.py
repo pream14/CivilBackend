@@ -9,10 +9,10 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "starz#"
+app.config['JWT_SECRET_KEY'] = "Jackdog02##"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -251,6 +251,18 @@ def submit_project():
 
     return jsonify({"message": "Project and payments added successfully"}), 200
 
+@app.route('/projects', methods=['GET'])
+def get_projects():
+    projects_list = projects.query.all()
+    projects_data = [
+        {
+            "projectname": proj.projectname,
+            "quotedamount": proj.quotedamount,
+            "totexpense": proj.totexpense
+        }
+        for proj in projects_list
+    ]
+    return jsonify({"projects": projects_data})
 
 
 
