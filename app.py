@@ -255,69 +255,118 @@ def submit_project():
 @app.route('/add_expense', methods=['POST'])
 def add_expense():
     data = request.get_json()
+    projectname = data.get('projectname')
+    category_id = data.get('category_id')  # ID from category table
+    expense_amount = data.get('expense')
+    selected_type = data.get('type')  # Labour, Material, Machinery
+    date = data.get('date', datetime.today().strftime('%Y-%m-%d'))  # Use current date if not provided
 
-    # Validate the incoming data
-    project_name = data.get('project_name')
-    expense_type = data.get('expense_type')
-    expense = data.get('expense')
-    category_id = data.get('phone')  # Assuming 'phone' is the category_id from frontend
+    if not projectname or not category_id or not expense_amount or not selected_type:
+        return jsonify({"error": "Missing required fields"}), 400
 
-    if not project_name or not expense_type or not expense or not category_id:
-        return jsonify({'success': False, 'message': 'Missing required fields'}), 400
+    try:
+        # Fetch the project and update total expense
+        project = projects.query.filter_by(projectname=projectname).first()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
 
-    # Fetch the project
-    project = projects.query.filter_by(projectname=project_name).first()
-    if not project:
-        return jsonify({'success': False, 'message': 'Project not found'}), 404
+        project.totexpense += int(expense_amount)
 
-    # Update project total expense
-    project.totexpense += expense
-    db.session.commit()
+        # Update the expense in payments1
+        payment_entry = payments1.query.filter_by(projectname=projectname, type=selected_type).first()
+        if payment_entry:
+            payment_entry.expense += int(expense_amount)
+        else:
+            return jsonify({"error": "Payment entry not found for given project and type"}), 404
 
-    # Search for existing payment1 entry by projectname and type
-    existing_payment1 = payments1.query.filter_by(projectname=project_name, type=expense_type).first()
+        # Insert new row into payments2
+        new_payment = payments2(
+            projectname=projectname,
+            id=category_id,
+            amount=int(expense_amount),
+            date=datetime.strptime(date, '%Y-%m-%d')
+        )
+        db.session.add(new_payment)
 
-    if existing_payment1:
-        # If the row exists, update the expense
-        existing_payment1.expense += expense
+        # Commit changes to the database
         db.session.commit()
-    else:
-        # If no row found, return error
-        return jsonify({'success': False, 'message': f'No expense entry found for project "{project_name}" with type "{expense_type}"'}), 404
-    new_payment2 = payments2(
-        projectname=project.projectname,
-        amount=expense,
-        id=category_id,  # The category ID
-        date=datetime.now().date()  # Using the current date for the expense entry
-    )
-    db.session.add(new_payment2)
 
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Expense updated successfully'}), 200
+        return jsonify({"message": "Expense added successfully"}), 200
+
+    except Exception as e:
+        db.session.rollback()  # Rollback in case of error
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/get_project_payment_details', methods=['GET'])
+def get_project_payment_details():
+    projectname = request.args.get('projectname')
+    selected_type = request.args.get('type')  # Labour, Material, Machinery
+
+    if not projectname or not selected_type:
+        return jsonify({"error": "Missing projectname or type"}), 400
+
+    # Check if the project exists in payments1 for the given type
+    project_exists = (
+        db.session.query(payments1)
+        .filter(payments1.projectname == projectname, payments1.type == selected_type)
+        .first()
+    )
+
+    if not project_exists:
+        return jsonify({"error": "No matching project found in payments1"}), 404
+
+    # Fetch all category names and IDs where type matches
+    results = (
+        db.session.query(category.id.label('category_id'), category.name.label('category_name'))
+        .filter(category.type == selected_type)
+        .all()
+    )
+
+    if results:
+        categories = [{"category_id": row.category_id, "category_name": row.category_name} for row in results]
+        print(categories)
+        return jsonify({
+            "projectname": projectname,
+            "categories": categories
+        })
+    else:
+        return jsonify({"error": "No matching categories found"}), 404
+
 
 @app.route('/search', methods=['GET'])
-def search():
-    project_name = request.args.get('project_name', '')
-    search_text = request.args.get('search_text', '')
+def search_projects():
+    search_text = request.args.get('project_name', '').strip()
 
-    # Filter projects based on project name
-    projects_filtered = db.session.query(projects).filter(projects.projectname.ilike(f'%{project_name}%')).all()
-    filtered_projects = [{'projectname': project.projectname, 'quotedamount': project.quotedamount, 'totexpense': project.totexpense} for project in projects_filtered]
+    if not search_text:
+        return jsonify({"filtered_projects": []})  # Return empty list if no input
 
-    # Filter workers based on search text (name or id)
-    workers_filtered = db.session.query(category).filter(
-        or_(
-            category.name.ilike(f'%{search_text}%'),
-            category.id.ilike(f'%{search_text}%')
-        )
-    ).all()
-    
-    filtered_workers = [{'name': worker.name, 'id': worker.id, 'type': worker.type} for worker in workers_filtered]
+    try:
+        # Query database for matching projects
+        project_list = projects.query.filter(projects.projectname.ilike(f"%{search_text}%")).all()
 
-    return jsonify({
-        'filtered_projects': filtered_projects,
-        'filtered_workers': filtered_workers
-    })
+        # Convert results to a list of dictionaries
+        filtered_projects = [{"projectname": project.projectname} for project in project_list]
+
+        return jsonify({"filtered_projects": filtered_projects})
+
+    except Exception as e:
+        print(f"Error in /search: {str(e)}")  # Log error to console
+        return jsonify({"error": "Internal server error"}), 500  # Return a proper error response
+
+
+@app.route('/projects', methods=['GET'])
+def get_projects():
+    projects_list = projects.query.all()
+    projects_data = [
+        {
+            "projectname": proj.projectname,
+            "quotedamount": proj.quotedamount,
+            "totexpense": proj.totexpense
+        }
+        for proj in projects_list
+    ]
+    return jsonify({"projects": projects_data})
 
 
 
