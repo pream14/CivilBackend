@@ -10,10 +10,10 @@ from sqlalchemy import or_
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "starz"
+app.config['JWT_SECRET_KEY'] = "Jackdog02#"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -372,6 +372,7 @@ def get_projects():
 def get_categories():
     selected_type = request.args.get('type')
 
+<<<<<<< Updated upstream
     if not selected_type:
         return jsonify({"error": "Missing type parameter"}), 400
 
@@ -390,6 +391,73 @@ def get_categories():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+=======
+@app.route('/project-details', methods=['GET'])
+def get_project_details():
+    projectname = request.args.get('projectname')
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+
+    project = projects.query.filter_by(projectname=projectname).first()
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    return jsonify({
+        "projectname": project.projectname,
+        "quotedamount": project.quotedamount,
+        "totexpense": project.totexpense
+    }), 200
+
+@app.route('/employee-details', methods=['GET'])
+def get_employee_details():
+    projectname = request.args.get('projectname')
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+
+    employee_data = (
+        db.session.query(category.name, category.type, payments2.date, payments2.amount)
+        .join(payments2, category.id == payments2.id)
+        .filter(payments2.projectname == projectname)
+        .all()
+    )
+
+    result = [
+        {
+            "name": row.name,
+            "type": row.type,
+            "date": row.date.strftime('%Y-%m-%d'),
+            "amount": row.amount
+        }
+        for row in employee_data
+    ]
+
+    return jsonify(result), 200
+
+@app.route('/category-details', methods=['GET'])
+def get_category_details():
+    projectname = request.args.get('projectname')
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+
+    category_data = (
+        db.session.query(payments1.type, payments1.estamount, payments1.expense, options.material)
+       # .join(options, payments1.type == options.labour)
+        .filter(payments1.projectname == projectname)
+        .all()
+    )
+
+    result = [
+        {
+            "type": row.type,
+            "estamount": row.estamount,
+            "expense": row.expense,
+           # "category": row.material
+        }
+        for row in category_data
+    ]
+
+    return jsonify(result), 200
+>>>>>>> Stashed changes
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
