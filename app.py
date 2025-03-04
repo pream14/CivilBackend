@@ -435,5 +435,28 @@ def get_category_details():
 
     return jsonify(result), 200
 
+@app.route('/get_categories', methods=['GET'])
+def get_categories():
+    selected_type = request.args.get('type')
+
+    if not selected_type:
+        return jsonify({"error": "Missing type parameter"}), 400
+
+    try:
+        # Fetch all categories where type matches
+        results = category.query.filter_by(type=selected_type).all()
+
+        if not results:
+            return jsonify({"error": "No matching categories found"}), 404
+
+        # Convert results to JSON format
+        categories = [{"category_id": row.id, "category_name": row.name} for row in results]
+
+        return jsonify({"categories": categories})
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
