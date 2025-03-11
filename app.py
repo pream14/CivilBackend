@@ -10,10 +10,10 @@ from sqlalchemy import or_
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "Jackdog02#"
+app.config['JWT_SECRET_KEY'] = "starz"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 
@@ -314,7 +314,7 @@ def get_project_payment_details():
     )
 
     if not project_exists:
-        return jsonify({"error": "No matching project found in payments1"}), 404
+        return jsonify({"error": "add the quoted amount for selected typr"+selected_type}), 404
 
     # Fetch all category names and IDs where type matches
     results = (
@@ -457,6 +457,25 @@ def get_categories():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+    
+@app.route('/get_projects_by_id', methods=['GET'])
+def get_projects_by_id():
+    user_id = request.args.get('id')  # Get ID from the request
+    if not user_id:
+        return jsonify({"error": "ID parameter is required"}), 400
+
+    projects = db.session.query(
+        payments2.projectname, payments2.date, payments2.amount
+    ).filter_by(id=user_id).all()
+    
+    project_details = [{
+        "project_name": proj[0],
+        "date": proj[1],
+        "expense": proj[2]  # Assuming 'amount' represents the expense
+    } for proj in projects]
+
+    return jsonify({"projects": project_details})
+
     
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
