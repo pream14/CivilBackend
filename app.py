@@ -7,6 +7,10 @@ from decimal import Decimal
 from werkzeug.security import generate_password_hash, check_password_hash  # Import from werkzeug
 from flask_cors import CORS
 from sqlalchemy import or_
+import joblib
+import numpy as np
+import pandas as pd
+
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
@@ -16,6 +20,8 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
+# Load the saved model
+model = joblib.load("final_cost_prediction_model.pkl")
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -475,6 +481,32 @@ def get_projects_by_id():
     } for proj in projects]
 
     return jsonify({"projects": project_details})
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    try:
+        data = request.json  # Get JSON data from request
+        input_values = np.array([[
+            data["Quoted Budget"],
+            data["Labor Cost"],
+            data["Material Cost"],
+            data["Machinery Cost"],
+            data["Project Progress (%)"],
+            data["Cost Per Day"]
+        ]])  # Convert to NumPy array
+
+        # Convert to DataFrame (same format used in training)
+        columns = ['Quoted Budget', 'Labor Cost', 'Material Cost', 'Machinery Cost', 'Project Progress (%)', 'Cost Per Day']
+        input_df = pd.DataFrame(input_values, columns=columns)
+
+        # Make prediction
+        predicted_cost = model.predict(input_df)[0]
+
+        # Return JSON response
+        return jsonify({"Predicted Estimated Final Cost": f"₹{predicted_cost:.2f}"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
     
 if __name__ == '__main__':
