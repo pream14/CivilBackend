@@ -16,9 +16,11 @@ use Civil;
 
 
  CREATE TABLE projects (
-     projectname VARCHAR(100) UNIQUE NOT NULL,
-     quotedamount INT NOT NULL,
-     totexpense INT DEFAULT 0 NOT NULL,
+    projectname VARCHAR(100) UNIQUE NOT NULL,
+    quotedamount INT NOT NULL,
+    totexpense INT DEFAULT 0 NOT NULL,
+    startdate DATE NOT NULL,          -- Column for project start date
+    duration INT NOT NULL,             -- Column for project duration in days
      PRIMARY KEY (projectname)
  );
 

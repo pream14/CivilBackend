@@ -10,14 +10,14 @@ from sqlalchemy import or_
 import joblib
 import numpy as np
 import pandas as pd
-
+from sqlalchemy import func, case 
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "starz"
+app.config['JWT_SECRET_KEY'] = "Jackdog02#"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 # Load the saved model
@@ -55,15 +55,19 @@ class category(db.Model):
 
 class projects(db.Model):
     __tablename__ = 'projects'
-    projectname = db.Column(db.String(100),unique=True, primary_key=True)
+    projectname = db.Column(db.String(100), unique=True, primary_key=True)
     quotedamount = db.Column(db.BigInteger, nullable=False, default=0)
     totexpense = db.Column(db.BigInteger, nullable=False)
+    startdate = db.Column(db.Date, nullable=False)  # Add this line
+    duration = db.Column(db.Integer, nullable=False)  # Add this line
 
-
-    def __init__(self,projectname, quotedamount, totexpense):
-        self.projectname=projectname
-        self.totexpense = totexpense
+    def __init__(self, projectname, quotedamount, totexpense, startdate, duration):
+        self.projectname = projectname
         self.quotedamount = quotedamount
+        self.totexpense = totexpense
+        self.startdate = startdate  # Add this line
+        self.duration = duration  # Add this line
+
 
 class payments1(db.Model):
     __tablename__ = 'payments1'
@@ -233,6 +237,8 @@ def submit_project():
     data = request.json
     project_name = data.get('projectname')
     estimated_amount = data.get('estimated_amount', 0)  # Fixed name
+    start_date = data.get('start_date', datetime.today().strftime('%Y-%m-%d'))  # Use current date if not provided
+    duration = data.get('duration', 0)  # Fixed name
     payments = data.get('rows', [])  # Fixed from 'payments' to 'rows'
 
     # Check if project already exists
@@ -240,7 +246,7 @@ def submit_project():
 
     if not existing_project:
         # Insert project into projects table
-        new_project = projects(projectname=project_name, quotedamount=estimated_amount, totexpense=0)
+        new_project = projects(projectname=project_name, quotedamount=estimated_amount, totexpense=0,startdate=start_date,duration=duration)
         db.session.add(new_project)
         db.session.commit()  # Commit immediately to avoid foreign key issues
 
@@ -482,32 +488,62 @@ def get_projects_by_id():
 
     return jsonify({"projects": project_details})
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    try:
-        data = request.json  # Get JSON data from request
-        input_values = np.array([[
-            data["Quoted Budget"],
-            data["Labor Cost"],
-            data["Material Cost"],
-            data["Machinery Cost"],
-            data["Project Progress (%)"],
-            data["Cost Per Day"]
-        ]])  # Convert to NumPy array
 
-        # Convert to DataFrame (same format used in training)
+@app.route('/check-overrun', methods=['POST'])
+def check_overrun():
+    data = request.get_json()
+    projectname = data.get('projectname')
+
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+
+    try:
+        # Fetch project details
+        project = projects.query.filter_by(projectname=projectname).first()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        # Calculate duration and cost per day
+        days_passed = (datetime.today().date() - project.startdate).days
+        days_passed = max(days_passed, 1)  # Prevent division by zero
+        cost_per_day = project.totexpense / days_passed
+        project_progress = (days_passed / project.duration) * 100
+
+        # Fetch payments1 data for the project
+        payments = payments1.query.filter_by(projectname=projectname).all()
+
+        # Calculate labour, material, and machinery costs
+        labour_cost = sum(p.expense for p in payments if p.type in ['Mason', 'Carpenter', 'Painter', 'Electrician', 'Plumber','Shuttering','Tiles Work','RR Mason'])
+        material_cost = sum(p.expense for p in payments if p.type in ['Cement', 'Bricks', 'M Sand', 'Metal', 'Steel', 'Shuttering Materials', 'Wood','Hardwares','Paint Shop','Tiles','Tiles Paste','Electrical Materials','Plumbing Materials','Soling','RR Stones'])
+        machinery_cost = sum(p.expense for p in payments if p.type in ['Excavator', 'Tipper', 'Tractor', 'Dozer', 'Roller', 'Water Tanker', 'Transport'])
+
+        # Prepare input for the model
+        input_values = np.array([[
+            project.quotedamount,  # Quoted Budget
+            labour_cost,            # Labour Cost
+            material_cost,          # Material Cost
+            machinery_cost,         # Machinery Cost
+            project_progress,       # Project Progress (%)
+            cost_per_day            # Cost Per Day
+        ]])
+
+        # Convert to DataFrame
         columns = ['Quoted Budget', 'Labor Cost', 'Material Cost', 'Machinery Cost', 'Project Progress (%)', 'Cost Per Day']
         input_df = pd.DataFrame(input_values, columns=columns)
 
         # Make prediction
         predicted_cost = model.predict(input_df)[0]
 
-        # Return JSON response
-        return jsonify({"Predicted Estimated Final Cost": f"₹{predicted_cost:.2f}"})
+        # Check for overrun
+        overrun = predicted_cost > project.quotedamount
+
+        return jsonify({
+            "overrun": overrun,
+            "predicted_cost": predicted_cost
+        })
 
     except Exception as e:
-        return jsonify({"error": str(e)})
-
+        return jsonify({"error": str(e)}), 500
     
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
