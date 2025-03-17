@@ -506,8 +506,10 @@ def check_overrun():
         # Calculate duration and cost per day
         days_passed = (datetime.today().date() - project.startdate).days
         days_passed = max(days_passed, 1)  # Prevent division by zero
+        
         cost_per_day = project.totexpense / days_passed
-        project_progress = (days_passed / project.duration) * 100
+
+        project_progress = (days_passed / max(project.duration, 1)) * 100
 
         # Fetch payments1 data for the project
         payments = payments1.query.filter_by(projectname=projectname).all()
@@ -534,13 +536,14 @@ def check_overrun():
         # Make prediction
         predicted_cost = model.predict(input_df)[0]
 
-        # Check for overrun
-        overrun = predicted_cost > project.quotedamount
+      # Check for overrun (Convert to Python bool explicitly)
+        overrun = bool(predicted_cost > project.quotedamount)
 
         return jsonify({
-            "overrun": overrun,
-            "predicted_cost": predicted_cost
+            "overrun": overrun,  # Now it's a Python bool, avoiding serialization issues
+            "predicted_cost": float(predicted_cost)  # Also ensure predicted cost is float
         })
+
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
