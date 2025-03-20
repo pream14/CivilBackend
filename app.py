@@ -14,17 +14,17 @@ from sqlalchemy import func, case
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "Jackdog02#"
+app.config['JWT_SECRET_KEY'] = "starz"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
-
+db = SQLAlchemy(app)
+jwt = JWTManager(app)
 # Load the saved model
 model = joblib.load("final_cost_prediction_model.pkl")
 
-db = SQLAlchemy(app)
-jwt = JWTManager(app)
+
 
 class options(db.Model):
     __tablename__ = 'options'
@@ -98,6 +98,24 @@ class payments2(db.Model):
         self.date = date
         self.amount = amount
         self.id = id
+@app.route('/get-options', methods=['GET'])
+def get_options():
+    try:
+        Options = options.query.all()  # ✅ Use "Options"
+        options_list = [
+            {
+                "labour": option.labour,
+                "machinery": option.machinery,
+                "material": option.material
+            }
+            for option in Options
+        ]
+        return jsonify(options_list)
+    except Exception as e:
+        import traceback
+        print("Options fetch error:", str(e))
+        print(traceback.format_exc())  # ✅ Prints detailed error log
+        return jsonify({"error": "Failed to fetch options", "details": str(e)}), 500
 
 @app.route('/add-category', methods=['POST'])
 def add_category():
@@ -117,6 +135,45 @@ def add_category():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Failed to add category. " + str(e)}), 500  # Include 'error' keyword
+
+@app.route('/get_category', methods=['GET'])
+def get_category():
+    categories = category.query.all()
+    return jsonify([{'id': cat.id, 'name': cat.name, 'type': cat.type} for cat in categories])
+
+# Update category (including ID change)
+@app.route('/update-category', methods=['POST'])
+def update_category():
+    data = request.json
+    Category = category.query.filter_by(id=data['old_id']).first()  
+
+    if Category:
+        # Check if ID was changed
+        if data['id'] != data['old_id']:
+            existing = category.query.filter_by(id=data['id']).first()
+            if existing:
+                return jsonify({"error": "ID already exists!"}), 400  # Prevent duplicate ID
+
+            Category.id = data['id']  # Change ID
+
+        Category.name = data['name']
+        Category.type = data['type']
+        db.session.commit()
+        return jsonify({"message": "Category updated successfully!"})
+    
+    return jsonify({"error": "Category not found!"}), 404
+
+# Delete category
+@app.route('/delete-category/<int:category_id>', methods=['DELETE'])
+def delete_category(category_id):
+    Category = category.query.filter_by(id=category_id).first()
+
+    if Category:
+        db.session.delete(Category)
+        db.session.commit()
+        return jsonify({"message": "Category deleted successfully!"})
+    
+    return jsonify({"error": "Category not found!"}), 404
 
 @app.route('/labour', methods=['GET'])
 def get_labour():
