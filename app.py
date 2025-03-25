@@ -14,10 +14,10 @@ from sqlalchemy import func, case
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
-app.config['JWT_SECRET_KEY'] = "starz"
+app.config['JWT_SECRET_KEY'] = "Jackdog02#"
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] =timedelta(days=365)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:starz@localhost/Civil'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@localhost/Civil'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -605,5 +605,195 @@ def check_overrun():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
+    # Update project details
+@app.route('/update-project', methods=['POST'])
+def update_project():
+    data = request.get_json()
+    projectname = data.get('projectname')
+    quotedamount = data.get('quotedamount')
+    totexpense = data.get('totexpense')
+
+    if not projectname or quotedamount is None:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    try:
+        project = projects.query.filter_by(projectname=projectname).first()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        project.quotedamount = quotedamount
+        project.totexpense = totexpense
+        db.session.commit()
+
+        return jsonify({"message": "Project updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# Delete expense
+@app.route('/delete-expense', methods=['POST'])
+def delete_expense():
+    data = request.get_json()
+    
+    # Validate required fields
+    required_fields = ['projectname', 'id', 'date']
+    missing_fields = [field for field in required_fields if field not in data]
+    
+    if missing_fields:
+        return jsonify({
+            "error": "Missing required fields",
+            "missing": missing_fields
+        }), 400
+
+    try:
+        # Find the exact record to delete
+        payment = payments2.query.filter_by(
+            projectname=data['projectname'],
+            id=data['id'],
+            date=data['date']
+        ).first()
+
+        if not payment:
+            return jsonify({
+                "error": "Expense record not found",
+                "details": f"No record found with projectname={data['projectname']}, id={data['id']}, date={data['date']}"
+            }), 404
+
+        amount = payment.amount
+        payment_type = payment.type if hasattr(payment, 'type') else None
+
+        # Delete the record
+        db.session.delete(payment)
+
+        # Update project total expense
+        project = projects.query.filter_by(projectname=data['projectname']).first()
+        if project:
+            project.totexpense -= amount
+
+        # Update payments1 if type is available
+        if payment_type:
+            payment1 = payments1.query.filter_by(
+                projectname=data['projectname'],
+                type=payment_type
+            ).first()
+            
+            if payment1:
+                payment1.expense -= amount
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Expense deleted successfully",
+            "deleted_amount": amount,
+            "deleted_type": payment_type
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "Internal server error",
+            "details": str(e)
+        }), 500
+# Add new payment type
+@app.route('/add-payment-type', methods=['POST'])
+def add_payment_type():
+    data = request.get_json()
+    projectname = data.get('projectname')
+    type_ = data.get('type')
+    estamount = data.get('estamount')
+    expense = data.get('expense', 0)
+
+    if not all([projectname, type_, estamount is not None]):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    try:
+        # Check if payment type already exists
+        existing = payments1.query.filter_by(
+            projectname=projectname,
+            type=type_
+        ).first()
+        
+        if existing:
+            return jsonify({"error": "Payment type already exists"}), 400
+
+        # Add new payment type
+        new_payment = payments1(
+            projectname=projectname,
+            type=type_,
+            estamount=estamount,
+            expense=expense
+        )
+        db.session.add(new_payment)
+        db.session.commit()
+        
+        return jsonify({"message": "Payment type added successfully"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# Update payment type
+@app.route('/update-payment-type', methods=['POST'])
+def update_payment_type():
+    data = request.get_json()
+    projectname = data.get('projectname')
+    type_ = data.get('type')
+    estamount = data.get('estamount')
+
+    if not all([projectname, type_, estamount is not None]):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    try:
+        payment = payments1.query.filter_by(
+            projectname=projectname,
+            type=type_
+        ).first()
+        
+        if not payment:
+            return jsonify({"error": "Payment type not found"}), 404
+
+        payment.estamount = estamount
+        db.session.commit()
+        
+        return jsonify({"message": "Payment type updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/get-expenses-for-deletion', methods=['GET'])
+def get_expenses_for_deletion():
+    projectname = request.args.get('projectname')
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+
+    try:
+        # Get all expenses with all fields needed for deletion
+        expenses = db.session.query(
+            payments2.uid,           # Primary key
+            payments2.projectname,
+            payments2.id,             # Category ID
+            payments2.date,
+            payments2.amount,
+            category.name,           # Employee/category name
+            category.type            # Expense type
+        ).join(
+            category, payments2.id == category.id
+        ).filter(
+            payments2.projectname == projectname
+        ).all()
+
+        result = [{
+            "uid": exp.uid,
+            "projectname": exp.projectname,
+            "id": exp.id,
+            "date": exp.date.strftime('%Y-%m-%d'),
+            "amount": exp.amount,
+            "name": exp.name,
+            "type": exp.type
+        } for exp in expenses]
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
