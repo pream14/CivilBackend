@@ -630,13 +630,12 @@ def update_project():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# Delete expense
 @app.route('/delete-expense', methods=['POST'])
 def delete_expense():
     data = request.get_json()
     
     # Validate required fields
-    required_fields = ['projectname', 'id', 'date']
+    required_fields = ['uid']
     missing_fields = [field for field in required_fields if field not in data]
     
     if missing_fields:
@@ -646,54 +645,59 @@ def delete_expense():
         }), 400
 
     try:
-        # Find the exact record to delete
-        payment = payments2.query.filter_by(
-            projectname=data['projectname'],
-            id=data['id'],
-            date=data['date']
-        ).first()
+        # Find the expense record in payments2 using uid
+        payment = payments2.query.filter_by(uid=data['uid']).first()
 
         if not payment:
             return jsonify({
                 "error": "Expense record not found",
-                "details": f"No record found with projectname={data['projectname']}, id={data['id']}, date={data['date']}"
+                "details": f"No record found with uid={data['uid']}"
             }), 404
 
         amount = payment.amount
-        payment_type = payment.type if hasattr(payment, 'type') else None
+        projectname = payment.projectname
+        category_id = payment.id  # id in payments2 table
 
-        # Delete the record
-        db.session.delete(payment)
-
-        # Update project total expense
-        project = projects.query.filter_by(projectname=data['projectname']).first()
+        # Fetch project details and update total expense
+        project = projects.query.filter_by(projectname=projectname).first()
         if project:
-            project.totexpense -= amount
+            project.totexpense -= amount  # Subtract from total expense
 
-        # Update payments1 if type is available
-        if payment_type:
-            payment1 = payments1.query.filter_by(
-                projectname=data['projectname'],
-                type=payment_type
-            ).first()
-            
-            if payment1:
-                payment1.expense -= amount
+        # Fetch type from category table using category_id
+        category_record = category.query.get(category_id)
+        if not category_record:
+            return jsonify({"error": "Invalid category ID"}), 400
+
+        category_type = category_record.type  # Get type
+
+        # Find the corresponding record in payments1 using projectname & type
+        payment1 = payments1.query.filter_by(
+            projectname=projectname,
+            type=category_type
+        ).first()
+
+        if payment1:
+            payment1.expense -= amount  # Subtract expense
+
+        # Delete the expense from payments2
+        db.session.delete(payment)
 
         db.session.commit()
 
         return jsonify({
             "message": "Expense deleted successfully",
             "deleted_amount": amount,
-            "deleted_type": payment_type
+            "deleted_type": category_type
         }), 200
 
     except Exception as e:
         db.session.rollback()
+        print("Delete Expense Error:", str(e))  # Debugging log
         return jsonify({
             "error": "Internal server error",
             "details": str(e)
         }), 500
+
 # Add new payment type
 @app.route('/add-payment-type', methods=['POST'])
 def add_payment_type():
