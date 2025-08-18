@@ -1,5 +1,5 @@
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date, datetime, timedelta  # Use this for datetime functionality
 from sqlalchemy import func
@@ -11,6 +11,16 @@ import joblib
 import numpy as np
 import pandas as pd
 from sqlalchemy import func, case 
+import io
+import os
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
@@ -568,13 +578,18 @@ def check_overrun():
 
         project_progress = (days_passed / max(project.duration, 1)) * 100
 
+        # ✅ Fetch dynamic types from options table
+        labour_types = [opt.labour for opt in options.query.filter(options.labour != '').all()]
+        material_types = [opt.material for opt in options.query.filter(options.material != '').all()]
+        machinery_types = [opt.machinery for opt in options.query.filter(options.machinery != '').all()]
+
         # Fetch payments1 data for the project
         payments = payments1.query.filter_by(projectname=projectname).all()
 
-        # Calculate labour, material, and machinery costs
-        labour_cost = sum(p.expense for p in payments if p.type in ['Mason', 'Carpenter', 'Painter', 'Electrician', 'Plumber','Shuttering','Tiles Work','RR Mason'])
-        material_cost = sum(p.expense for p in payments if p.type in ['Cement', 'Bricks', 'M Sand', 'Metal', 'Steel', 'Shuttering Materials', 'Wood','Hardwares','Paint Shop','Tiles','Tiles Paste','Electrical Materials','Plumbing Materials','Soling','RR Stones'])
-        machinery_cost = sum(p.expense for p in payments if p.type in ['Excavator', 'Tipper', 'Tractor', 'Dozer', 'Roller', 'Water Tanker', 'Transport'])
+        # ✅ Calculate costs dynamically
+        labour_cost = sum(p.expense for p in payments if p.type in labour_types)
+        material_cost = sum(p.expense for p in payments if p.type in material_types)
+        machinery_cost = sum(p.expense for p in payments if p.type in machinery_types)
 
         # Prepare input for the model
         input_values = np.array([[
@@ -799,5 +814,351 @@ def get_expenses_for_deletion():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Report Generation Functions
+def generate_pdf_report(data, title, filename):
+    """Generate PDF report using ReportLab"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    
+    # Styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30,
+        alignment=1  # Center alignment
+    )
+    
+    # Add title
+    elements.append(Paragraph(title, title_style))
+    elements.append(Spacer(1, 20))
+    
+    # Add timestamp
+    timestamp = Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal'])
+    elements.append(timestamp)
+    elements.append(Spacer(1, 20))
+    
+    if data:
+        # Convert data to table format
+        if isinstance(data, list) and len(data) > 0:
+            # Get headers from first row
+            headers = list(data[0].keys())
+            table_data = [headers]  # Add headers as first row
+            
+            # Add data rows
+            for row in data:
+                table_data.append([str(row.get(header, '')) for header in headers])
+            
+            # Create table
+            table = Table(table_data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(table)
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+def generate_excel_report(data, title, filename):
+    """Generate Excel report using OpenPyXL"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Report"
+    
+    # Add title
+    ws['A1'] = title
+    ws['A1'].font = Font(size=16, bold=True)
+    ws.merge_cells('A1:E1')
+    ws['A1'].alignment = Alignment(horizontal='center')
+    
+    # Add timestamp
+    ws['A2'] = f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ws['A2'].font = Font(size=10, italic=True)
+    ws.merge_cells('A2:E2')
+    
+    if data:
+        # Add headers
+        if isinstance(data, list) and len(data) > 0:
+            headers = list(data[0].keys())
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=4, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+                cell.alignment = Alignment(horizontal='center')
+            
+            # Add data
+            for row_idx, row_data in enumerate(data, 5):
+                for col_idx, header in enumerate(headers, 1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=str(row_data.get(header, '')))
+                    cell.alignment = Alignment(horizontal='center')
+    
+    # Auto-adjust column widths
+    for column in ws.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[column_letter].width = adjusted_width
+    
+    # Save to buffer
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+@app.route('/download-project-report-pdf', methods=['GET'])
+def download_project_report_pdf():
+    """Download project details report as PDF"""
+    projectname = request.args.get('projectname')
+    report_type = request.args.get('type', 'all')  # all, employee, category
+    
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+    
+    try:
+        # Get project details
+        project = projects.query.filter_by(projectname=projectname).first()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        data = []
+        title = f"Project Report: {projectname}"
+        
+        if report_type == 'all' or report_type == 'employee':
+            # Get employee details
+            employee_data = (
+                db.session.query(category.name, category.type, payments2.date, payments2.amount)
+                .join(payments2, category.id == payments2.id)
+                .filter(payments2.projectname == projectname)
+                .all()
+            )
+            
+            for row in employee_data:
+                data.append({
+                    "Name": row.name,
+                    "Type": row.type,
+                    "Date": row.date.strftime('%Y-%m-%d'),
+                    "Amount": f"₹{row.amount:,}"
+                })
+        
+        elif report_type == 'category':
+            # Get category details
+            category_data = (
+                db.session.query(payments1.type, payments1.estamount, payments1.expense)
+                .filter(payments1.projectname == projectname)
+                .all()
+            )
+            
+            for row in category_data:
+                data.append({
+                    "Type": row.type,
+                    "Estimated Amount": f"₹{row.estamount:,}",
+                    "Actual Expense": f"₹{row.expense:,}",
+                    "Difference": f"₹{row.estamount - row.expense:,}"
+                })
+        
+        # Generate PDF
+        buffer = generate_pdf_report(data, title, f"{projectname}_report.pdf")
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"{projectname}_report.pdf",
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/download-project-report-excel', methods=['GET'])
+def download_project_report_excel():
+    """Download project details report as Excel"""
+    projectname = request.args.get('projectname')
+    report_type = request.args.get('type', 'all')  # all, employee, category
+    
+    if not projectname:
+        return jsonify({"error": "Missing projectname"}), 400
+    
+    try:
+        # Get project details
+        project = projects.query.filter_by(projectname=projectname).first()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        data = []
+        title = f"Project Report: {projectname}"
+        
+        if report_type == 'all' or report_type == 'employee':
+            # Get employee details
+            employee_data = (
+                db.session.query(category.name, category.type, payments2.date, payments2.amount)
+                .join(payments2, category.id == payments2.id)
+                .filter(payments2.projectname == projectname)
+                .all()
+            )
+            
+            for row in employee_data:
+                data.append({
+                    "Name": row.name,
+                    "Type": row.type,
+                    "Date": row.date.strftime('%Y-%m-%d'),
+                    "Amount": row.amount
+                })
+        
+        elif report_type == 'category':
+            # Get category details
+            category_data = (
+                db.session.query(payments1.type, payments1.estamount, payments1.expense)
+                .filter(payments1.projectname == projectname)
+                .all()
+            )
+            
+            for row in category_data:
+                data.append({
+                    "Type": row.type,
+                    "Estimated Amount": row.estamount,
+                    "Actual Expense": row.expense,
+                    "Difference": row.estamount - row.expense
+                })
+        
+        # Generate Excel
+        buffer = generate_excel_report(data, title, f"{projectname}_report.xlsx")
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"{projectname}_report.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/download-user-financial-report-pdf', methods=['GET'])
+def download_user_financial_report_pdf():
+    """Download user financial details report as PDF"""
+    user_id = request.args.get('id')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    if not user_id:
+        return jsonify({"error": "Missing user ID"}), 400
+    
+    try:
+        # Build query
+        query = db.session.query(
+            payments2.projectname, payments2.date, payments2.amount,
+            category.name, category.type
+        ).join(category, payments2.id == category.id).filter(payments2.id == user_id)
+        
+        # Apply date filters if provided
+        if start_date:
+            query = query.filter(payments2.date >= start_date)
+        if end_date:
+            query = query.filter(payments2.date <= end_date)
+        
+        financial_data = query.all()
+        
+        data = []
+        for row in financial_data:
+            data.append({
+                "Project Name": row.projectname,
+                "Date": row.date.strftime('%Y-%m-%d'),
+                "Amount": f"₹{row.amount:,}",
+                "Category": row.name,
+                "Type": row.type
+            })
+        
+        title = f"User Financial Report (ID: {user_id})"
+        if start_date and end_date:
+            title += f" - {start_date} to {end_date}"
+        
+        # Generate PDF
+        buffer = generate_pdf_report(data, title, f"user_{user_id}_financial_report.pdf")
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"user_{user_id}_financial_report.pdf",
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/download-user-financial-report-excel', methods=['GET'])
+def download_user_financial_report_excel():
+    """Download user financial details report as Excel"""
+    user_id = request.args.get('id')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    if not user_id:
+        return jsonify({"error": "Missing user ID"}), 400
+    
+    try:
+        # Build query
+        query = db.session.query(
+            payments2.projectname, payments2.date, payments2.amount,
+            category.name, category.type
+        ).join(category, payments2.id == category.id).filter(payments2.id == user_id)
+        
+        # Apply date filters if provided
+        if start_date:
+            query = query.filter(payments2.date >= start_date)
+        if end_date:
+            query = query.filter(payments2.date <= end_date)
+        
+        financial_data = query.all()
+        
+        data = []
+        for row in financial_data:
+            data.append({
+                "Project Name": row.projectname,
+                "Date": row.date.strftime('%Y-%m-%d'),
+                "Amount": row.amount,
+                "Category": row.name,
+                "Type": row.type
+            })
+        
+        title = f"User Financial Report (ID: {user_id})"
+        if start_date and end_date:
+            title += f" - {start_date} to {end_date}"
+        
+        # Generate Excel
+        buffer = generate_excel_report(data, title, f"user_{user_id}_financial_report.xlsx")
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"user_{user_id}_financial_report.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
