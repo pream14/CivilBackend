@@ -21,6 +21,12 @@ from reportlab.lib import colors
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # This will allow all domains to access your Flask app
@@ -31,6 +37,12 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Jackdog02#@
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
+
+# Email Configuration
+app.config['SENDGRID_API_KEY'] = os.environ.get('SENDGRID_API_KEY', 'YOUR_SENDGRID_API_KEY_HERE')
+app.config['FROM_EMAIL'] = os.environ.get('FROM_EMAIL', 'noreply@civilbackend.com')
+app.config['TO_EMAIL'] = os.environ.get('TO_EMAIL', '22z269@psgtech.ac.in')
+
 # Load the saved model
 model = joblib.load("final_cost_prediction_model.pkl")
 
@@ -108,6 +120,175 @@ class payments2(db.Model):
         self.date = date
         self.amount = amount
         self.id = id
+
+# Email Notification Function
+def send_budget_overrun_email(project_name, quoted_budget, predicted_cost, variance_amount, variance_percentage):
+    """Send email notification for budget overrun"""
+    try:
+        # Create email content
+        subject = f"🚨 Budget Overrun Alert: {project_name}"
+        
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #e74c3c; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f8f9fa; padding: 20px; border-radius: 0 0 5px 5px; }}
+                .alert {{ background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }}
+                .metric {{ background-color: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #e74c3c; }}
+                .metric-label {{ font-weight: bold; color: #2c3e50; }}
+                .metric-value {{ font-size: 18px; color: #e74c3c; font-weight: bold; }}
+                .footer {{ text-align: center; margin-top: 20px; color: #7f8c8d; font-size: 12px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>⚠️ Budget Overrun Alert</h1>
+                    <p>Project: {project_name}</p>
+                </div>
+                
+                <div class="content">
+                    <div class="alert">
+                        <strong>Attention:</strong> Our predictive model indicates that this project may exceed its allocated budget.
+                        Immediate action is recommended to review project expenses and implement cost control measures.
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Project Name:</div>
+                        <div class="metric-value">{project_name}</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Quoted Budget:</div>
+                        <div class="metric-value">₹{quoted_budget:,.2f}</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Predicted Final Cost:</div>
+                        <div class="metric-value">₹{predicted_cost:,.2f}</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Budget Variance:</div>
+                        <div class="metric-value">₹{variance_amount:,.2f} ({variance_percentage:.1f}%)</div>
+                    </div>
+                    
+                    <div style="margin-top: 20px; padding: 15px; background-color: #e8f5e8; border-radius: 5px;">
+                        <h3>Recommended Actions:</h3>
+                        <ul>
+                            <li>Review current project expenses and identify cost-saving opportunities</li>
+                            <li>Analyze spending patterns and implement stricter budget controls</li>
+                            <li>Consider renegotiating contracts or finding alternative suppliers</li>
+                            <li>Schedule a project review meeting with stakeholders</li>
+                            <li>Update project timeline if necessary to accommodate budget constraints</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>This is an automated alert from the Civil Backend System.</p>
+                    <p>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Create plain text version
+        text_content = f"""
+Budget Overrun Alert - {project_name}
+
+Attention: Our predictive model indicates that this project may exceed its allocated budget.
+
+Project Details:
+- Project Name: {project_name}
+- Quoted Budget: ₹{quoted_budget:,.2f}
+- Predicted Final Cost: ₹{predicted_cost:,.2f}
+- Budget Variance: ₹{variance_amount:,.2f} ({variance_percentage:.1f}%)
+
+Recommended Actions:
+1. Review current project expenses and identify cost-saving opportunities
+2. Analyze spending patterns and implement stricter budget controls
+3. Consider renegotiating contracts or finding alternative suppliers
+4. Schedule a project review meeting with stakeholders
+5. Update project timeline if necessary to accommodate budget constraints
+
+Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        """
+        
+        # Create and send email
+        message = Mail(
+            from_email=app.config['FROM_EMAIL'],
+            to_emails=app.config['TO_EMAIL'],
+            subject=subject,
+            html_content=html_content,
+            plain_text_content=text_content
+        )
+        
+        sg = SendGridAPIClient(api_key=app.config['SENDGRID_API_KEY'])
+        response = sg.send(message)
+        
+        print(f"Budget overrun email sent successfully. Status: {response.status_code}")
+        return True
+        
+    except Exception as e:
+        print(f"Error sending budget overrun email: {str(e)}")
+        return False
+
+@app.route('/test-email', methods=['GET'])
+def test_email():
+    """Test endpoint to verify email functionality"""
+    try:
+        # Test email configuration
+        api_key = app.config['SENDGRID_API_KEY']
+        from_email = app.config['FROM_EMAIL']
+        to_email = app.config['TO_EMAIL']
+        
+        print(f"Email Configuration:")
+        print(f"API Key: {'*' * 10 + api_key[-4:] if len(api_key) > 10 else 'NOT SET'}")
+        print(f"From Email: {from_email}")
+        print(f"To Email: {to_email}")
+        
+        # Check if API key is properly set
+        if api_key == 'YOUR_SENDGRID_API_KEY_HERE':
+            return jsonify({
+                "error": "SendGrid API key not configured",
+                "message": "Please set SENDGRID_API_KEY in your environment variables",
+                "config": {
+                    "api_key_set": False,
+                    "from_email": from_email,
+                    "to_email": to_email
+                }
+            }), 400
+        
+        # Try to send a test email
+        test_result = send_budget_overrun_email(
+            project_name="TEST PROJECT",
+            quoted_budget=1000000,
+            predicted_cost=1200000,
+            variance_amount=200000,
+            variance_percentage=20.0
+        )
+        
+        return jsonify({
+            "success": test_result,
+            "message": "Test email sent successfully" if test_result else "Failed to send test email",
+            "config": {
+                "api_key_set": True,
+                "from_email": from_email,
+                "to_email": to_email
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "message": "Error testing email configuration"
+        }), 500
+
 @app.route('/get-options', methods=['GET'])
 def get_options():
     try:
@@ -370,6 +551,69 @@ def add_expense():
         # Commit changes to the database
         db.session.commit()
 
+        # Check for budget overrun and send email notification
+        try:
+            # Calculate duration and cost per day
+            days_passed = (datetime.today().date() - project.startdate).days
+            days_passed = max(days_passed, 1)  # Prevent division by zero
+            
+            cost_per_day = project.totexpense / days_passed
+            project_progress = (days_passed / max(project.duration, 1)) * 100
+
+            # Fetch dynamic types from options table
+            labour_types = [opt.labour for opt in options.query.filter(options.labour != '').all()]
+            material_types = [opt.material for opt in options.query.filter(options.material != '').all()]
+            machinery_types = [opt.machinery for opt in options.query.filter(options.machinery != '').all()]
+
+            # Fetch payments1 data for the project
+            payments = payments1.query.filter_by(projectname=projectname).all()
+
+            # Calculate costs dynamically
+            labour_cost = sum(p.expense for p in payments if p.type in labour_types)
+            material_cost = sum(p.expense for p in payments if p.type in material_types)
+            machinery_cost = sum(p.expense for p in payments if p.type in machinery_types)
+
+            # Prepare input for the model
+            input_values = np.array([[
+                project.quotedamount,  # Quoted Budget
+                labour_cost,            # Labour Cost
+                material_cost,          # Material Cost
+                machinery_cost,         # Machinery Cost
+                project_progress,       # Project Progress (%)
+                cost_per_day            # Cost Per Day
+            ]])
+
+            # Convert to DataFrame
+            columns = ['Quoted Budget', 'Labor Cost', 'Material Cost', 'Machinery Cost', 'Project Progress (%)', 'Cost Per Day']
+            input_df = pd.DataFrame(input_values, columns=columns)
+
+            # Make prediction
+            predicted_cost = model.predict(input_df)[0]
+
+            # Check for overrun
+            if predicted_cost > project.quotedamount:
+                # Calculate variance
+                variance_amount = predicted_cost - project.quotedamount
+                variance_percentage = (variance_amount / project.quotedamount) * 100
+                
+                # Send email notification
+                email_sent = send_budget_overrun_email(
+                    project_name=projectname,
+                    quoted_budget=project.quotedamount,
+                    predicted_cost=predicted_cost,
+                    variance_amount=variance_amount,
+                    variance_percentage=variance_percentage
+                )
+                
+                if email_sent:
+                    print(f"Budget overrun email notification sent for project: {projectname}")
+                else:
+                    print(f"Failed to send budget overrun email for project: {projectname}")
+                    
+        except Exception as e:
+            print(f"Error checking budget overrun or sending email: {str(e)}")
+            # Don't fail the expense addition if email fails
+
         return jsonify({"message": "Expense added successfully"}), 200
 
     except Exception as e:
@@ -608,14 +852,32 @@ def check_overrun():
         # Make prediction
         predicted_cost = model.predict(input_df)[0]
 
-      # Check for overrun (Convert to Python bool explicitly)
+        # Check for overrun (Convert to Python bool explicitly)
         overrun = bool(predicted_cost > project.quotedamount)
+
+        # Send email notification if overrun detected
+        if overrun:
+            variance_amount = predicted_cost - project.quotedamount
+            variance_percentage = (variance_amount / project.quotedamount) * 100
+            
+            # Send email notification
+            email_sent = send_budget_overrun_email(
+                project_name=projectname,
+                quoted_budget=project.quotedamount,
+                predicted_cost=predicted_cost,
+                variance_amount=variance_amount,
+                variance_percentage=variance_percentage
+            )
+            
+            if email_sent:
+                print(f"Budget overrun email notification sent for project: {projectname}")
+            else:
+                print(f"Failed to send budget overrun email for project: {projectname}")
 
         return jsonify({
             "overrun": overrun,  # Now it's a Python bool, avoiding serialization issues
             "predicted_cost": float(predicted_cost)  # Also ensure predicted cost is float
         })
-
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -878,61 +1140,85 @@ def generate_pdf_report(data, title, filename):
 
 def generate_excel_report(data, title, filename):
     """Generate Excel report using OpenPyXL"""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Report"
-    
-    # Add title
-    ws['A1'] = title
-    ws['A1'].font = Font(size=16, bold=True)
-    ws.merge_cells('A1:E1')
-    ws['A1'].alignment = Alignment(horizontal='center')
-    
-    # Add timestamp
-    ws['A2'] = f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    ws['A2'].font = Font(size=10, italic=True)
-    ws.merge_cells('A2:E2')
-    
-    if data:
-        # Add headers
-        if isinstance(data, list) and len(data) > 0:
-            headers = list(data[0].keys())
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=4, column=col, value=header)
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
-                cell.alignment = Alignment(horizontal='center')
-            
-            # Add data
-            for row_idx, row_data in enumerate(data, 5):
-                for col_idx, header in enumerate(headers, 1):
-                    cell = ws.cell(row=row_idx, column=col_idx, value=str(row_data.get(header, '')))
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Report"
+        
+        # Add title
+        ws['A1'] = title
+        ws['A1'].font = Font(size=16, bold=True)
+        ws['A1'].alignment = Alignment(horizontal='center')
+        
+        # Add timestamp
+        ws['A2'] = f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ws['A2'].font = Font(size=10, italic=True)
+        ws['A2'].alignment = Alignment(horizontal='center')
+        
+        if data:
+            # Add headers
+            if isinstance(data, list) and len(data) > 0:
+                headers = list(data[0].keys())
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=4, column=col, value=header)
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
                     cell.alignment = Alignment(horizontal='center')
-    
-    # Auto-adjust column widths
-    for column in ws.columns:
-        max_length = 0
-        column_letter = column[0].column_letter
-        for cell in column:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 50)
-        ws.column_dimensions[column_letter].width = adjusted_width
-    
-    # Save to buffer
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    return buffer
+                
+                # Add data
+                for row_idx, row_data in enumerate(data, 5):
+                    for col_idx, header in enumerate(headers, 1):
+                        value = row_data.get(header, '')
+                        # Handle numeric values properly
+                        if isinstance(value, (int, float)):
+                            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                        else:
+                            cell = ws.cell(row=row_idx, column=col_idx, value=str(value))
+                        cell.alignment = Alignment(horizontal='center')
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to buffer
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        print(f"Excel generation error: {str(e)}")
+        # Return a simple error Excel file
+        wb = Workbook()
+        ws = wb.active
+        ws['A1'] = "Error Generating Report"
+        ws['A2'] = f"Error: {str(e)}"
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer
 
 @app.route('/download-project-report-pdf', methods=['GET'])
 def download_project_report_pdf():
     """Download project details report as PDF"""
     projectname = request.args.get('projectname')
     report_type = request.args.get('type', 'all')  # all, employee, category
+    
+    # Optional filters for employee report
+    name_filter = request.args.get('name', '').strip()
+    etype_filter = request.args.get('etype', '').strip()
+    date_filter = request.args.get('date', '').strip()  # substring like 2024-01 or exact date
+    
+    # Optional filter for category report
+    category_search = request.args.get('search', '').strip()
     
     if not projectname:
         return jsonify({"error": "Missing projectname"}), 400
@@ -948,12 +1234,22 @@ def download_project_report_pdf():
         
         if report_type == 'all' or report_type == 'employee':
             # Get employee details
-            employee_data = (
+            query = (
                 db.session.query(category.name, category.type, payments2.date, payments2.amount)
                 .join(payments2, category.id == payments2.id)
                 .filter(payments2.projectname == projectname)
-                .all()
             )
+            
+            # Apply optional filters
+            if name_filter:
+                query = query.filter(category.name.like(f"%{name_filter}%"))
+            if etype_filter:
+                query = query.filter(category.type.like(f"%{etype_filter}%"))
+            if date_filter:
+                # match substring against YYYY-MM-DD formatted date
+                query = query.filter(func.date_format(payments2.date, '%Y-%m-%d').like(f"%{date_filter}%"))
+            
+            employee_data = query.all()
             
             for row in employee_data:
                 data.append({
@@ -965,11 +1261,13 @@ def download_project_report_pdf():
         
         elif report_type == 'category':
             # Get category details
-            category_data = (
+            query = (
                 db.session.query(payments1.type, payments1.estamount, payments1.expense)
                 .filter(payments1.projectname == projectname)
-                .all()
             )
+            if category_search:
+                query = query.filter(payments1.type.like(f"%{category_search}%"))
+            category_data = query.all()
             
             for row in category_data:
                 data.append({
@@ -998,10 +1296,20 @@ def download_project_report_excel():
     projectname = request.args.get('projectname')
     report_type = request.args.get('type', 'all')  # all, employee, category
     
+    # Optional filters for employee report
+    name_filter = request.args.get('name', '').strip()
+    etype_filter = request.args.get('etype', '').strip()
+    date_filter = request.args.get('date', '').strip()  # substring like 2024-01 or exact date
+    
+    # Optional filter for category report
+    category_search = request.args.get('search', '').strip()
+    
     if not projectname:
         return jsonify({"error": "Missing projectname"}), 400
     
     try:
+        print(f"Generating Excel report for project: {projectname}, type: {report_type}")
+        
         # Get project details
         project = projects.query.filter_by(projectname=projectname).first()
         if not project:
@@ -1012,12 +1320,21 @@ def download_project_report_excel():
         
         if report_type == 'all' or report_type == 'employee':
             # Get employee details
-            employee_data = (
+            query = (
                 db.session.query(category.name, category.type, payments2.date, payments2.amount)
                 .join(payments2, category.id == payments2.id)
                 .filter(payments2.projectname == projectname)
-                .all()
             )
+            # Apply optional filters
+            if name_filter:
+                query = query.filter(category.name.like(f"%{name_filter}%"))
+            if etype_filter:
+                query = query.filter(category.type.like(f"%{etype_filter}%"))
+            if date_filter:
+                query = query.filter(func.date_format(payments2.date, '%Y-%m-%d').like(f"%{date_filter}%"))
+            
+            employee_data = query.all()
+            print(f"Found {len(employee_data)} employee records")
             
             for row in employee_data:
                 data.append({
@@ -1029,11 +1346,14 @@ def download_project_report_excel():
         
         elif report_type == 'category':
             # Get category details
-            category_data = (
+            query = (
                 db.session.query(payments1.type, payments1.estamount, payments1.expense)
                 .filter(payments1.projectname == projectname)
-                .all()
             )
+            if category_search:
+                query = query.filter(payments1.type.like(f"%{category_search}%"))
+            category_data = query.all()
+            print(f"Found {len(category_data)} category records")
             
             for row in category_data:
                 data.append({
@@ -1042,6 +1362,8 @@ def download_project_report_excel():
                     "Actual Expense": row.expense,
                     "Difference": row.estamount - row.expense
                 })
+        
+        print(f"Generated {len(data)} data rows for Excel report")
         
         # Generate Excel
         buffer = generate_excel_report(data, title, f"{projectname}_report.xlsx")
@@ -1054,7 +1376,10 @@ def download_project_report_excel():
         )
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Excel generation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Excel generation failed: {str(e)}"}), 500
 
 @app.route('/download-user-financial-report-pdf', methods=['GET'])
 def download_user_financial_report_pdf():
@@ -1119,6 +1444,9 @@ def download_user_financial_report_excel():
         return jsonify({"error": "Missing user ID"}), 400
     
     try:
+        print(f"Generating user financial Excel report for user: {user_id}")
+        print(f"Date range: {start_date} to {end_date}")
+        
         # Build query
         query = db.session.query(
             payments2.projectname, payments2.date, payments2.amount,
@@ -1132,6 +1460,7 @@ def download_user_financial_report_excel():
             query = query.filter(payments2.date <= end_date)
         
         financial_data = query.all()
+        print(f"Found {len(financial_data)} financial records")
         
         data = []
         for row in financial_data:
@@ -1147,6 +1476,8 @@ def download_user_financial_report_excel():
         if start_date and end_date:
             title += f" - {start_date} to {end_date}"
         
+        print(f"Generated {len(data)} data rows for Excel report")
+        
         # Generate Excel
         buffer = generate_excel_report(data, title, f"user_{user_id}_financial_report.xlsx")
         
@@ -1158,7 +1489,10 @@ def download_user_financial_report_excel():
         )
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"User financial Excel generation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Excel generation failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True,host="0.0.0.0",port=5000)
